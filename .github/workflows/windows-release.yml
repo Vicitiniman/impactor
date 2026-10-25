@@ -1,0 +1,111 @@
+name: Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Optional tag starting with windows- (leave blank for an automatic tag)
+        type: string
+        required: false
+  pull_request:
+    paths:
+      - .github/workflows/windows-release.yml
+      - .github/scripts/package-windows.ps1
+      - .github/scripts/prepare-windows-draft.ps1
+      - package/windows/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Windows x64
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: Read release version
+        id: metadata
+        shell: pwsh
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $metadata = cargo metadata --locked --no-deps --format-version 1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read the application version' }
+          $version = (($metadata | ConvertFrom-Json).packages | Where-Object name -eq 'plumeimpactor').version
+          if (-not $version) { throw 'Application version not found' }
+          $tag = $env:REQUESTED_TAG
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            $tag = "windows-v$version-build.$env:GITHUB_RUN_NUMBER"
+          }
+          if ($tag -notmatch '^windows-[A-Za-z0-9][A-Za-z0-9._-]*$') {
+            throw 'Release tag must start with windows- and contain only letters, numbers, dots, underscores, or hyphens'
+          }
+          git check-ref-format "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { throw 'Invalid release tag' }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+      - name: Install Windows build and packaging tools
+        shell: pwsh
+        run: |
+          choco install nasm nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build tool installation failed' }
+          (Join-Path $env:ProgramFiles 'NASM') >> $env:GITHUB_PATH
+      - name: Build desktop app and command-line tool
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo build --locked --release --target x86_64-pc-windows-msvc -p plumeimpactor -p plumesign
+          if ($LASTEXITCODE -ne 0) { throw 'Windows build failed' }
+      - name: Package installer and portable files
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.metadata.outputs.version }}
+        run: ./.github/scripts/package-windows.ps1 -Version $env:APP_VERSION
+      - name: Upload Windows files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Impactor-windows-x86_64
+          path: |
+            dist/Impactor-windows-x86_64-portable.exe
+            dist/Impactor-windows-x86_64-setup.exe
+            dist/plumesign-windows-x86_64.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  draft-release:
+    name: Prepare draft release
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: Impactor-windows-x86_64
+          path: dist
+      - name: Create or update draft
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          APP_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          ./.github/scripts/prepare-windows-draft.ps1 `
+            -Tag $env:RELEASE_TAG `
+            -Version $env:APP_VERSION `
+            -Commit $env:GITHUB_SHA `
+            -Repository $env:GITHUB_REPOSITORY

@@ -1,5 +1,13 @@
 # Impactor
 
+## Prepare a Windows release
+
+After the workflow is merged into the default branch, open **Actions > Windows release > Run workflow**, select the branch to build, and run it. Leave the tag blank to generate `windows-v<VERSION>-build.<RUN_NUMBER>`, or enter a unique tag starting with `windows-`.
+
+The workflow builds the 64-bit Windows desktop app and command-line tool, creates the NSIS installer, and attaches all three executables plus `SHA256SUMS.txt` to an **unpublished draft release**. The workflow run summary links to the draft. The same files are available as the `Impactor-windows-x86_64` Actions artifact. Review the draft and publish it manually when ready.
+
+The release uses the exact commit selected for the run. Re-running that commit with the same tag can refresh its draft and assets; an existing published release or a draft for another commit is left untouched. Windows-prefixed tags avoid the existing all-platform release trigger. Pull requests that change this workflow or its packaging files build the Windows artifacts for verification and do not create a release. The existing multi-platform release workflow remains available separately.
+
 ## Custom entitlements
 
 With **Advanced > Only Register Main Bundle** enabled, a custom entitlements plist adds to or overrides the generated signing entitlements for apps and app extensions. A file containing only iCloud settings is sufficient; it does not need to repeat `application-identifier`, the team identifier, or existing keychain groups. The app and team identity from the selected provisioning profile take precedence over values in the custom file. Frameworks and libraries do not receive the custom entitlements. Both XML and binary plist dictionaries are supported.
