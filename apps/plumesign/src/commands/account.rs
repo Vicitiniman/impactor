@@ -5,7 +5,7 @@ use anyhow::{Ok, Result};
 use clap::{Args, Subcommand};
 use dialoguer::Select;
 
-use plume_core::{AnisetteConfiguration, auth::Account, developer::DeveloperSession};
+use plume_core::{AnisetteMode, auth::Account, developer::DeveloperSession};
 use plume_store::AccountStore;
 
 use crate::get_data_path;
@@ -41,6 +41,9 @@ pub enum AccountCommands {
 #[derive(Debug, Args)]
 #[command(arg_required_else_help = true)]
 pub struct LoginArgs {
+    /// Authentication mode, saved for future logins and signing (default: saved mode or standard)
+    #[arg(long, value_name = "MODE")]
+    pub anisette_mode: Option<AnisetteMode>,
     /// Apple ID email
     #[arg(short = 'u', long = "username", value_name = "EMAIL")]
     pub username: Option<String>,
@@ -126,7 +129,7 @@ pub async fn get_authenticated_account() -> Result<DeveloperSession> {
         })?
         .clone();
 
-    let anisette_config = AnisetteConfiguration::default().set_configuration_path(get_data_path());
+    let anisette_config = settings.anisette_configuration(get_data_path());
 
     log::info!("Restoring session for {}...", gsa_account.email());
 
@@ -185,7 +188,12 @@ async fn login(args: LoginArgs) -> Result<()> {
         std::result::Result::Ok(TwoFactorAction::SubmitCode(input.to_string()))
     };
 
-    let anisette_config = AnisetteConfiguration::default().set_configuration_path(get_data_path());
+    let settings_path = get_settings_path();
+    let settings = AccountStore::load(&Some(settings_path.clone())).await?;
+    let mode = args.anisette_mode.unwrap_or(settings.anisette_mode());
+    let anisette_config = settings
+        .anisette_configuration(get_data_path())
+        .set_mode(mode);
 
     let username = if let Some(user) = args.username {
         user
@@ -219,10 +227,56 @@ async fn login(args: LoginArgs) -> Result<()> {
     settings
         .accounts_add_from_session(username, account)
         .await?;
+    settings.set_anisette_mode_sync(mode)?;
 
     log::info!("Successfully logged in and account saved.");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn compatibility_cli_modes_are_optional_and_validated() {
+        use crate::commands::{Cli, Commands};
+        for (flag, expected) in [
+            (None, None),
+            (Some("iloader"), Some(AnisetteMode::Iloader)),
+            (Some("standard"), Some(AnisetteMode::Standard)),
+        ] {
+            let mut args = vec![
+                "plumesign",
+                "account",
+                "login",
+                "--username",
+                "test@example.test",
+            ];
+            if let Some(flag) = flag {
+                args.extend(["--anisette-mode", flag]);
+            }
+            let parsed = Cli::try_parse_from(args).unwrap();
+            let Commands::Account(account) = parsed.command else {
+                panic!("wrong command");
+            };
+            let AccountCommands::Login(login) = account.command else {
+                panic!("wrong account command");
+            };
+            assert_eq!(login.anisette_mode, expected);
+        }
+        assert!(
+            Cli::try_parse_from([
+                "plumesign",
+                "account",
+                "login",
+                "--anisette-mode",
+                "unknown"
+            ])
+            .is_err()
+        );
+    }
 }
 
 async fn logout() -> Result<()> {

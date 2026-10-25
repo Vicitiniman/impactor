@@ -61,9 +61,7 @@ pub fn get_data_path() -> PathBuf {
     let base = if cfg!(windows) {
         env::var("APPDATA").unwrap()
     } else {
-        env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
-            env::var("HOME").unwrap() + "/.config"
-        })
+        env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| env::var("HOME").unwrap() + "/.config")
     };
 
     let dir = Path::new(&base).join("PlumeImpactor");
@@ -71,4 +69,10 @@ pub fn get_data_path() -> PathBuf {
     fs::create_dir_all(&dir).ok();
 
     dir
+}
+
+pub fn anisette_configuration() -> Result<plume_core::AnisetteConfiguration, plume_core::Error> {
+    let data_path = get_data_path();
+    let store = plume_store::AccountStore::load_sync(&Some(data_path.join("accounts.json")))?;
+    Ok(store.anisette_configuration(data_path))
 }

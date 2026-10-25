@@ -151,7 +151,10 @@ impl Account {
             headers.insert("Content-Type", HeaderValue::from_static("application/json"));
             headers.insert("Accept", HeaderValue::from_static("application/json"));
         }
-        headers.insert("User-Agent", HeaderValue::from_static("Xcode"));
+        headers.insert(
+            "User-Agent",
+            HeaderValue::from_str(&valid_anisette.user_agent("Xcode")).unwrap(),
+        );
         headers.insert("Accept-Language", HeaderValue::from_static("en-us"));
         headers.append(
             "X-Apple-Identity-Token",

@@ -1,5 +1,9 @@
 // Implementing the SideStore Anisette v3 protocol
 
+#[cfg(test)]
+#[path = "remote_compatibility_tests.rs"]
+mod compatibility_tests;
+
 use std::{collections::HashMap, fs, io::Cursor, path::PathBuf};
 
 use crate::adi_proxy::LOOKUP_CLIENT_INFO;
@@ -114,6 +118,14 @@ impl AnisetteState {
         self.adi_pb.is_some()
     }
 
+    fn invalidate(&mut self, reset_identity: bool) {
+        if reset_identity {
+            *self = Self::new();
+        } else {
+            self.adi_pb = None;
+        }
+    }
+
     fn md_lu(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(&self.keychain_identifier);
@@ -127,6 +139,7 @@ impl AnisetteState {
 pub struct AnisetteClient {
     client_info: AnisetteClientInfo,
     url: String,
+    use_server_identity: bool,
 }
 
 #[derive(Serialize)]
@@ -144,13 +157,14 @@ pub struct AnisetteData {
     device_description: String,
     local_user_id: String,
     device_unique_identifier: String,
+    user_agent: Option<String>,
 }
 
 impl AnisetteData {
     pub fn get_headers(&self, serial: String) -> HashMap<String, String> {
         let dt: DateTime<Utc> = Utc::now().round_subsecs(0);
 
-        HashMap::from_iter(
+        let mut headers = HashMap::from_iter(
             [
                 (
                     "X-Apple-I-Client-Time".to_string(),
@@ -173,7 +187,11 @@ impl AnisetteData {
                 ),
             ]
             .into_iter(),
-        )
+        );
+        if let Some(user_agent) = &self.user_agent {
+            headers.insert("User-Agent".to_string(), user_agent.clone());
+        }
+        headers
     }
 }
 
@@ -186,15 +204,37 @@ fn make_reqwest() -> Result<Client, AnisetteError> {
 
 impl AnisetteClient {
     pub async fn new(url: String) -> Result<AnisetteClient, AnisetteError> {
+        Self::new_with_server_identity(url, false).await
+    }
+
+    async fn new_with_server_identity(
+        url: String,
+        use_server_identity: bool,
+    ) -> Result<AnisetteClient, AnisetteError> {
         let path = format!("{}/v3/client_info", url);
         let http_client = make_reqwest()?;
         let client_info = http_client
             .get(path)
             .send()
             .await?
+            .error_for_status()?
             .json::<AnisetteClientInfo>()
             .await?;
-        Ok(AnisetteClient { client_info, url })
+        if use_server_identity {
+            for value in [&client_info.client_info, &client_info.user_agent] {
+                if value.trim().is_empty() || reqwest::header::HeaderValue::from_str(value).is_err()
+                {
+                    return Err(AnisetteError::RemoteServer(
+                        "Invalid client identity returned by /v3/client_info".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(AnisetteClient {
+            client_info,
+            url,
+            use_server_identity,
+        })
     }
 
     fn build_apple_request(
@@ -256,6 +296,7 @@ impl AnisetteClient {
             .json(&body)
             .send()
             .await?
+            .error_for_status()?
             .json::<AnisetteHeaders>()
             .await?;
         match headers {
@@ -263,7 +304,7 @@ impl AnisetteClient {
                 if message.contains("-45061") {
                     Err(AnisetteError::AnisetteNotProvisioned)
                 } else {
-                    panic!("Unknown error {}", message)
+                    Err(AnisetteError::RemoteServer(message))
                 }
             }
             AnisetteHeaders::Headers {
@@ -277,6 +318,9 @@ impl AnisetteClient {
                 device_description: self.client_info.client_info.clone(),
                 local_user_id: encode_hex(&state.md_lu()),
                 device_unique_identifier: state.device_id(),
+                user_agent: self
+                    .use_server_identity
+                    .then(|| self.client_info.user_agent.clone()),
             }),
         }
     }
@@ -338,9 +382,11 @@ impl AnisetteClient {
         }
 
         loop {
-            let Some(Ok(data)) = connection.next().await else {
-                continue;
-            };
+            let data = connection.next().await.ok_or_else(|| {
+                AnisetteError::RemoteServer(
+                    "Provisioning connection closed before completion".into(),
+                )
+            })??;
             if data.is_text() {
                 let txt = data.to_text().unwrap();
                 let msg: ProvisionInput = serde_json::from_str(txt)?;
@@ -450,7 +496,9 @@ impl AnisetteClient {
                     }
                 }
             } else if data.is_close() {
-                break;
+                return Err(AnisetteError::RemoteServer(
+                    "Provisioning connection closed before completion".into(),
+                ));
             }
         }
 
@@ -464,6 +512,7 @@ pub struct RemoteAnisetteProviderV3 {
     pub state: Option<AnisetteState>,
     configuration_path: PathBuf,
     serial: String,
+    use_server_identity: bool,
 }
 
 impl RemoteAnisetteProviderV3 {
@@ -478,7 +527,13 @@ impl RemoteAnisetteProviderV3 {
             state: None,
             configuration_path,
             serial,
+            use_server_identity: false,
         }
+    }
+
+    pub fn with_server_identity(mut self, enabled: bool) -> Self {
+        self.use_server_identity = enabled;
+        self
     }
 }
 
@@ -489,7 +544,13 @@ impl AnisetteHeadersProvider for RemoteAnisetteProviderV3 {
         _skip_provisioning: bool,
     ) -> Result<HashMap<String, String>, AnisetteError> {
         if self.client.is_none() {
-            self.client = Some(AnisetteClient::new(self.client_url.clone()).await?);
+            self.client = Some(
+                AnisetteClient::new_with_server_identity(
+                    self.client_url.clone(),
+                    self.use_server_identity,
+                )
+                .await?,
+            );
         }
         let client = self.client.as_ref().unwrap();
 
@@ -513,12 +574,12 @@ impl AnisetteHeadersProvider for RemoteAnisetteProviderV3 {
             Ok(data) => data,
             Err(err) => {
                 if matches!(err, AnisetteError::AnisetteNotProvisioned) {
-                    state.adi_pb = None;
+                    state.invalidate(self.use_server_identity);
                     client.provision(state).await?;
                     plist::to_file_xml(config_path, state)?;
                     client.get_headers(&state).await?
                 } else {
-                    panic!()
+                    return Err(err);
                 }
             }
         };

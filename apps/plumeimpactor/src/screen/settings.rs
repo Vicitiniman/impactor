@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use iced::widget::{button, checkbox, column, container, pick_list, row, scrollable, text};
 use iced::{Alignment, Element, Fill, Task};
+use plume_core::AnisetteMode;
 use plume_store::AccountStore;
 use rust_i18n::t;
 
@@ -19,6 +20,21 @@ impl std::fmt::Display for Team {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnisetteChoice(pub AnisetteMode);
+
+impl std::fmt::Display for AnisetteChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self.0 {
+            AnisetteMode::Standard => t!("settings_authentication_standard"),
+            AnisetteMode::Iloader => t!("settings_authentication_iloader"),
+            AnisetteMode::IloaderSidestore => t!("settings_authentication_iloader_sidestore"),
+            AnisetteMode::IloaderStikstore => t!("settings_authentication_iloader_stikstore"),
+        };
+        write!(f, "{label}")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     ShowLogin,
@@ -31,6 +47,7 @@ pub enum Message {
     ToggleAutoStart(bool),
     SelectLocale(Option<String>),
     ResetAnisetteData,
+    SelectAnisetteMode(AnisetteChoice),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +85,7 @@ impl std::fmt::Display for LocaleChoice {
 pub struct SettingsScreen {
     teams: HashMap<String, Vec<Team>>,
     loading_teams: Option<String>,
+    settings_error: Option<String>,
 }
 
 impl SettingsScreen {
@@ -75,6 +93,7 @@ impl SettingsScreen {
         Self {
             teams: HashMap::new(),
             loading_teams: None,
+            settings_error: None,
         }
     }
 
@@ -93,8 +112,18 @@ impl SettingsScreen {
             Message::SelectTeam(_, _) => Task::none(),
             Message::SelectLocale(_) => Task::none(),
             Message::ResetAnisetteData => {
-                let path = crate::defaults::get_data_path().join("state.plist");
-                let _ = std::fs::remove_file(path);
+                self.settings_error = None;
+                match crate::defaults::anisette_configuration() {
+                    Ok(config) => {
+                        let path = config.remote_configuration_path().join("state.plist");
+                        if let Err(error) = std::fs::remove_file(path) {
+                            if error.kind() != std::io::ErrorKind::NotFound {
+                                self.settings_error = Some(error.to_string());
+                            }
+                        }
+                    }
+                    Err(error) => self.settings_error = Some(error.to_string()),
+                }
                 Task::none()
             }
             _ => Task::none(),
@@ -184,16 +213,16 @@ impl SettingsScreen {
                 },
             );
 
-            content = content.push(container(scrollable(account_list)).height(Fill).style(
-                |theme: &iced::Theme| container::Style {
+            content = content.push(container(account_list).style(|theme: &iced::Theme| {
+                container::Style {
                     border: iced::Border {
                         width: 1.0,
                         color: theme.palette().background.scale_alpha(0.5),
                         radius: appearance::THEME_CORNER_RADIUS.into(),
                     },
                     ..Default::default()
-                },
-            ));
+                }
+            }));
         } else {
             content = content.push(text(t!("settings_no_accounts_yet")));
         }
@@ -201,6 +230,22 @@ impl SettingsScreen {
         let auto_start_enabled = crate::startup::auto_start_enabled();
         content = content.push(self.view_auto_start_toggle(auto_start_enabled));
         content = content.push(self.view_language_picker(selected_locale));
+        let picker = pick_list(
+            AnisetteMode::ALL.map(AnisetteChoice),
+            Some(AnisetteChoice(store.anisette_mode())),
+            Message::SelectAnisetteMode,
+        )
+        .style(appearance::s_pick_list)
+        .width(Fill);
+        content = content.push(
+            column![text(t!("settings_authentication")), picker].spacing(appearance::THEME_PADDING),
+        );
+        if store.anisette_mode().uses_server_identity() {
+            content = content.push(text(t!("settings_iloader_description")).size(12));
+        }
+        if let Some(error) = &self.settings_error {
+            content = content.push(text(error).size(12));
+        }
         content = content.push(self.view_account_buttons(selected_index));
         content = content.push(
             button(appearance::icon_text(
@@ -212,7 +257,11 @@ impl SettingsScreen {
             .style(appearance::s_button),
         );
 
-        content.into()
+        scrollable(content).into()
+    }
+
+    pub fn set_settings_error(&mut self, error: Option<String>) {
+        self.settings_error = error;
     }
 
     fn view_auto_start_toggle(&self, auto_start_enabled: bool) -> Element<'_, Message> {
