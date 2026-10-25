@@ -61,6 +61,13 @@ jobs:
           choco install nasm nsis --yes --no-progress
           if ($LASTEXITCODE -ne 0) { throw 'Windows build tool installation failed' }
           (Join-Path $env:ProgramFiles 'NASM') >> $env:GITHUB_PATH
+      - name: Verify Windows runtime linkage
+        shell: pwsh
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
+        run: |
+          cargo test --locked --target x86_64-pc-windows-msvc -p omnisette --features remote-anisette-v3 --lib windows_crt_linkage
+          if ($LASTEXITCODE -ne 0) { throw 'Windows runtime linkage check failed' }
       - name: Build desktop app and command-line tool
         shell: pwsh
         env:

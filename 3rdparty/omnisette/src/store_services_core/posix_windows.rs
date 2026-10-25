@@ -4,11 +4,37 @@ use log::debug;
 use std::ffi::{CStr, CString};
 use std::mem::MaybeUninit;
 
-#[link(name = "ucrt")]
+// Match Rust's CRT selection. Linking the shared UCRT into a static-CRT
+// executable introduces duplicate runtime symbols at the final MSVC link.
+#[cfg_attr(
+    all(target_env = "msvc", target_feature = "crt-static"),
+    link(name = "libucrt")
+)]
+#[cfg_attr(
+    not(all(target_env = "msvc", target_feature = "crt-static")),
+    link(name = "ucrt")
+)]
 unsafe extern "C" {
     fn _errno() -> *mut libc::c_int;
     fn _timespec64_get(__ts: *mut libc::timespec, __base: libc::c_int) -> libc::c_int;
     fn _chsize(handle: i64, length: u64) -> usize;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_crt_linkage_resolves_runtime_symbols() {
+        unsafe {
+            assert!(!_errno().is_null());
+            let mut time = MaybeUninit::<libc::timespec>::zeroed();
+            assert_eq!(_timespec64_get(time.as_mut_ptr(), 1), 1);
+            assert!(time.assume_init().tv_sec > 0);
+            // Retain the third import without resizing a real file.
+            std::hint::black_box(_chsize as unsafe extern "C" fn(i64, u64) -> usize);
+        }
+    }
 }
 
 // took from cosmopolitan libc
