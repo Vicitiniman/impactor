@@ -25,5 +25,7 @@ jobs:
         run: cargo test --locked -p plume_core -p plume_store --lib compatibility
       - name: Test command-line mode selection
         run: cargo test --locked -p plumesign --bin plumesign compatibility
+      - name: Test custom entitlement merging
+        run: cargo test --locked -p plume_utils --lib custom_entitlements
       - name: Check desktop and CLI integration
         run: cargo check --locked --workspace --exclude plume_gestalt --all-targets
