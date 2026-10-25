@@ -66,6 +66,8 @@ jobs:
         env:
           RUSTFLAGS: -C target-feature=+crt-static
         run: |
+          cargo build --locked --target x86_64-pc-windows-msvc -p omnisette --features remote-anisette-v3 --lib
+          if ($LASTEXITCODE -ne 0) { throw 'Windows runtime library build failed' }
           cargo test --locked --target x86_64-pc-windows-msvc -p omnisette --features remote-anisette-v3 --lib windows_crt_linkage
           if ($LASTEXITCODE -ne 0) { throw 'Windows runtime linkage check failed' }
       - name: Build desktop app and command-line tool

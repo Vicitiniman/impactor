@@ -6,9 +6,11 @@ use std::mem::MaybeUninit;
 
 // Match Rust's CRT selection. Linking the shared UCRT into a static-CRT
 // executable introduces duplicate runtime symbols at the final MSVC link.
+// Let the final linker resolve this Windows SDK library instead of bundling
+// it into our rlib, where Rust may not have the SDK's library search paths.
 #[cfg_attr(
     all(target_env = "msvc", target_feature = "crt-static"),
-    link(name = "libucrt", kind = "static")
+    link(name = "libucrt", kind = "static", modifiers = "-bundle")
 )]
 #[cfg_attr(
     not(all(target_env = "msvc", target_feature = "crt-static")),
