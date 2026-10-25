@@ -1,5 +1,13 @@
 # Impactor
 
+## Custom entitlements
+
+With **Advanced > Only Register Main Bundle** enabled, a custom entitlements plist adds to or overrides the generated signing entitlements for apps and app extensions. A file containing only iCloud settings is sufficient; it does not need to repeat `application-identifier`, the team identifier, or existing keychain groups. The app and team identity from the selected provisioning profile take precedence over values in the custom file. Frameworks and libraries do not receive the custom entitlements. Both XML and binary plist dictionaries are supported.
+
+The provisioning profile must still authorize the requested capabilities and iCloud containers. Importing an entitlements file cannot grant access to a container that the signing account/profile does not allow. See [Apple's entitlements troubleshooting guidance](https://developer.apple.com/library/archive/technotes/tn2415/).
+
+Regression checks: `cargo test --locked -p plume_utils --lib custom_entitlements`.
+
 ## Optional iLoader compatibility mode
 
 Open **Settings > Authentication mode** and choose **iLoader compatibility - Jkcoxson** to try iLoader's current remote authentication approach. SideStore and StikStore are available as alternatives. The choice is saved and applies to the next login, signing operation, team lookup, certificate export, and automatic refresh. Operations already running finish with the configuration they started with.

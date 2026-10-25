@@ -11,6 +11,9 @@ use plume_core::{
 
 use crate::{Bundle, BundleType, Error, PlistInfoTrait, SignerApp, SignerMode, SignerOptions};
 
+#[cfg(test)]
+mod custom_entitlements_tests;
+
 pub struct Signer {
     certificate: Option<CertificateIdentity>,
     pub options: SignerOptions,
@@ -448,18 +451,60 @@ impl Signer {
         }
 
         if self.options.mode != SignerMode::Adhoc {
-            if self.options.embedding.single_profile {
-                if let Some(ent_path) = &self.options.custom_entitlements {
-                    let ent_bytes = std::fs::read(ent_path)?;
-                    entitlements_xml = String::from_utf8_lossy(&ent_bytes).to_string();
-                }
-            }
+            entitlements_xml = self.signing_entitlements(bundle.bundle_type(), entitlements_xml)?;
             settings.set_entitlements_xml(SettingsScope::Main, entitlements_xml)?;
         }
 
         UnifiedSigner::new(settings).sign_path_in_place(bundle.bundle_dir())?;
 
         Ok(())
+    }
+
+    fn signing_entitlements(
+        &self,
+        bundle_type: &BundleType,
+        generated_xml: String,
+    ) -> Result<String, Error> {
+        if self.options.mode == SignerMode::Adhoc
+            || !self.options.embedding.single_profile
+            || !bundle_type.should_have_entitlements()
+        {
+            return Ok(generated_xml);
+        }
+        let Some(path) = &self.options.custom_entitlements else {
+            return Ok(generated_xml);
+        };
+
+        let mut entitlements: plist::Dictionary = plist::from_bytes(generated_xml.as_bytes())?;
+        let custom = Value::from_file(path)?.into_dictionary().ok_or_else(|| {
+            Error::Other("Custom entitlements must contain a plist dictionary.".into())
+        })?;
+
+        for (key, value) in custom {
+            // A custom file may come from a different signing account. Keep the
+            // app and team identity resolved from this app's provisioning profile.
+            if matches!(
+                key.as_str(),
+                "application-identifier" | "com.apple.developer.team-identifier"
+            ) && entitlements.contains_key(&key)
+            {
+                continue;
+            }
+            entitlements.insert(key, value);
+        }
+        if !entitlements
+            .get("application-identifier")
+            .and_then(Value::as_string)
+            .is_some_and(|id| !id.is_empty())
+        {
+            return Err(Error::Other(
+                "Signing entitlements are missing application-identifier. Use a valid provisioning profile for this app.".into(),
+            ));
+        }
+
+        let mut xml = Vec::new();
+        Value::Dictionary(entitlements).to_writer_xml(&mut xml)?;
+        Ok(String::from_utf8_lossy(&xml).into_owned())
     }
 
     fn build_base_settings(

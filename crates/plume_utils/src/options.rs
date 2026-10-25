@@ -10,7 +10,8 @@ pub struct SignerOptions {
     /// Custom version override.
     pub custom_version: Option<String>,
     pub custom_icon: Option<PathBuf>,
-    /// Custom entitlements plist to embed (only used when single_profile is set).
+    /// Custom entitlements to merge into app/extension signing entitlements
+    /// (only used when single_profile is set). Profile app/team identity is preserved.
     pub custom_entitlements: Option<PathBuf>,
     /// Feature support options.
     pub features: SignerFeatures,
