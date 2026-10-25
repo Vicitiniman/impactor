@@ -1,5 +1,12 @@
 _language_name = "English"
 
+settings_authentication = "Authentication mode"
+settings_authentication_standard = "Standard (default)"
+settings_authentication_iloader = "iLoader compatibility - Jkcoxson"
+settings_authentication_iloader_sidestore = "iLoader compatibility - SideStore"
+settings_authentication_iloader_stikstore = "iLoader compatibility - StikStore"
+settings_iloader_description = "Uses a remote server for authentication data. Try another server if sign-in fails. You may need to sign in again; SMS verification may be unavailable."
+
 install = "Install"
 export = "Export"
 drag_and_drop = "Drag & drop an IPA here"

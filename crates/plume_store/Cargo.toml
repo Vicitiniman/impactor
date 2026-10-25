@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs"] }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -13,7 +13,12 @@ use thiserror::Error;
 
 pub mod adi_proxy;
 pub mod anisette_headers_provider;
+mod mode;
 pub mod store_services_core;
+pub use mode::AnisetteMode;
+
+#[cfg(all(test, feature = "remote-anisette-v3"))]
+mod compatibility_tests;
 
 #[cfg(feature = "remote-anisette-v3")]
 pub mod remote_anisette_v3;
@@ -31,6 +36,8 @@ pub enum AnisetteError {
     InvalidArgument(String),
     #[error("Anisette not provisioned!")]
     AnisetteNotProvisioned,
+    #[error("Anisette server error: {0}")]
+    RemoteServer(String),
     #[error("Plist serialization error {0}")]
     PlistError(#[from] plist::Error),
     #[error("Request Error {0}")]
@@ -65,6 +72,7 @@ pub struct AnisetteConfiguration {
     anisette_url_v3: String,
     configuration_path: PathBuf,
     macos_serial: String,
+    mode: AnisetteMode,
 }
 
 impl Default for AnisetteConfiguration {
@@ -80,6 +88,7 @@ impl AnisetteConfiguration {
             anisette_url_v3: DEFAULT_ANISETTE_URL_V3.to_string(),
             configuration_path: PathBuf::new(),
             macos_serial: "0".to_string(),
+            mode: AnisetteMode::Standard,
         }
     }
 
@@ -89,6 +98,26 @@ impl AnisetteConfiguration {
 
     pub fn configuration_path(&self) -> &PathBuf {
         &self.configuration_path
+    }
+
+    pub fn mode(&self) -> AnisetteMode {
+        self.mode
+    }
+
+    pub fn set_mode(mut self, mode: AnisetteMode) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    pub fn remote_configuration_path(&self) -> PathBuf {
+        match self.mode.cache_directory() {
+            Some(directory) => self.configuration_path.join(directory),
+            None => self.configuration_path.clone(),
+        }
+    }
+
+    pub fn remote_url(&self) -> &str {
+        self.mode.server_url().unwrap_or(&self.anisette_url_v3)
     }
 
     pub fn set_anisette_url(mut self, anisette_url: String) -> AnisetteConfiguration {
@@ -138,19 +167,22 @@ impl AnisetteHeaders {
         configuration: AnisetteConfiguration,
     ) -> Result<AnisetteHeadersProviderRes, AnisetteError> {
         // TODO: handle Err because it will just go to remote anisette and not tell the user anything
-        if let Ok(ssc_anisette_headers_provider) =
-            AnisetteHeaders::get_ssc_anisette_headers_provider(configuration.clone())
-        {
-            return Ok(ssc_anisette_headers_provider);
+        if !configuration.mode.uses_server_identity() {
+            if let Ok(ssc_anisette_headers_provider) =
+                AnisetteHeaders::get_ssc_anisette_headers_provider(configuration.clone())
+            {
+                return Ok(ssc_anisette_headers_provider);
+            }
         }
 
         #[cfg(feature = "remote-anisette-v3")]
         return Ok(AnisetteHeadersProviderRes::remote(Box::new(
             remote_anisette_v3::RemoteAnisetteProviderV3::new(
-                configuration.anisette_url_v3,
-                configuration.configuration_path.clone(),
+                configuration.remote_url().to_string(),
+                configuration.remote_configuration_path(),
                 configuration.macos_serial.clone(),
-            ),
+            )
+            .with_server_identity(configuration.mode.uses_server_identity()),
         )));
     }
 

@@ -1,0 +1,29 @@
+name: Authentication compatibility
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev libsecret-1-dev libgtk-3-dev libpng-dev libjpeg-dev libgl1-mesa-dev libglu1-mesa-dev libxkbcommon-dev libexpat1-dev libtiff-dev libxdo-dev libappindicator3-dev
+      - name: Test remote provider with local fixtures
+        run: cargo test --locked -p omnisette --features remote-anisette-v3 --lib compatibility
+      - name: Test identity headers and saved settings
+        run: cargo test --locked -p plume_core -p plume_store --lib compatibility
+      - name: Test command-line mode selection
+        run: cargo test --locked -p plumesign --bin plumesign compatibility
+      - name: Check desktop and CLI integration
+        run: cargo check --locked --workspace --exclude plume_gestalt --all-targets

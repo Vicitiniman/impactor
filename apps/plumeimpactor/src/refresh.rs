@@ -4,9 +4,7 @@ use std::thread;
 use std::time::Duration;
 
 use chrono::Utc;
-use plume_core::{
-    AnisetteConfiguration, CertificateIdentity, MobileProvision, developer::DeveloperSession,
-};
+use plume_core::{CertificateIdentity, MobileProvision, developer::DeveloperSession};
 use plume_store::{AccountStore, RefreshDevice};
 use plume_utils::{Bundle, Device, Signer, SignerMode, SignerOptions};
 
@@ -174,7 +172,7 @@ impl RefreshDaemon {
         let session = DeveloperSession::new(
             account.adsid().clone(),
             account.xcode_gs_token().clone(),
-            AnisetteConfiguration::default().set_configuration_path(get_data_path()),
+            store.anisette_configuration(get_data_path()),
         )
         .await
         .map_err(|e| format!("Failed to create session: {}", e))?;
@@ -368,6 +366,9 @@ impl RefreshDaemon {
         let scheduled_refresh = scheduled_refresh - chrono::Duration::days(3);
 
         let mut store = store.clone();
+        store
+            .reload_sync()
+            .map_err(|e| format!("Failed to reload settings: {e}"))?;
         let mut updated_device = refresh_device.clone();
 
         if let Some(existing_app) = updated_device.apps.iter_mut().find(|a| a.path == app.path) {

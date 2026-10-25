@@ -8,10 +8,10 @@ mod windows;
 use std::collections::VecDeque;
 
 use iced::Length::Fill;
-use iced::widget::operation::{focus_next,focus_previous};
-use iced::widget::{button, column, container, pick_list, row, stack, text};
 use iced::event::{self, Event, Status};
 use iced::keyboard::{self, Key, key};
+use iced::widget::operation::{focus_next, focus_previous};
+use iced::widget::{button, column, container, pick_list, row, stack, text};
 use iced::window;
 use iced::{Element, Subscription, Task};
 
@@ -37,7 +37,9 @@ pub enum Message {
     NavigateToScreen(ImpactorScreenType),
     NextScreen,
     PreviousScreen,
-    TabPressed { shift: bool },
+    TabPressed {
+        shift: bool,
+    },
 
     // Device management
     ComboBoxSelected(String),
@@ -596,6 +598,13 @@ impl Impactor {
                             }
                             screen.update(msg).map(Message::SettingsScreen)
                         }
+                        settings::Message::SelectAnisetteMode(choice) => {
+                            if let Some(store) = &mut self.account_store {
+                                let error = store.set_anisette_mode_sync(choice.0).err();
+                                screen.set_settings_error(error.map(|e| e.to_string()));
+                            }
+                            Task::none()
+                        }
                         settings::Message::SelectLocale(choice) => {
                             self.selected_locale = choice.clone();
                             let effective = choice
@@ -831,7 +840,9 @@ impl Impactor {
                     ..
                 }),
                 Status::Ignored,
-            ) => Some(Message::TabPressed { shift: modifiers.shift() }),
+            ) => Some(Message::TabPressed {
+                shift: modifiers.shift(),
+            }),
             _ => None,
         });
 

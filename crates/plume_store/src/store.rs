@@ -3,9 +3,12 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use plume_core::Error;
+use plume_core::{AnisetteConfiguration, AnisetteMode, Error};
 
 use crate::{GsaAccount, RefreshDevice};
+
+#[cfg(test)]
+mod compatibility_tests;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct AccountStore {
@@ -15,6 +18,8 @@ pub struct AccountStore {
     refreshes: HashMap<String, RefreshDevice>, // UDID -> RefreshDevice (apps?)
     #[serde(default)]
     locale: Option<String>, // None = system locale
+    #[serde(default)]
+    anisette_mode: AnisetteMode,
     #[serde(skip)]
     path: Option<PathBuf>,
 }
@@ -80,6 +85,14 @@ impl AccountStore {
         self.path.clone()
     }
 
+    /// Reload before saving the results of a long-running signing or refresh job.
+    pub fn reload_sync(&mut self) -> Result<(), Error> {
+        if self.path.is_some() {
+            *self = Self::load_sync(&self.path)?;
+        }
+        Ok(())
+    }
+
     pub fn get_account(&self, email: &str) -> Option<&GsaAccount> {
         self.accounts.get(email)
     }
@@ -142,6 +155,26 @@ impl AccountStore {
 
     pub fn locale(&self) -> Option<&str> {
         self.locale.as_deref()
+    }
+
+    pub fn anisette_mode(&self) -> AnisetteMode {
+        self.anisette_mode
+    }
+
+    pub fn anisette_configuration(&self, data_path: PathBuf) -> AnisetteConfiguration {
+        AnisetteConfiguration::default()
+            .set_configuration_path(data_path)
+            .set_mode(self.anisette_mode)
+    }
+
+    pub fn set_anisette_mode_sync(&mut self, mode: AnisetteMode) -> Result<(), Error> {
+        let previous = self.anisette_mode;
+        self.anisette_mode = mode;
+        if let Err(error) = self.save_sync() {
+            self.anisette_mode = previous;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn set_locale_sync(&mut self, locale: Option<String>) -> Result<(), Error> {

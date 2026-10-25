@@ -5,6 +5,9 @@ use omnisette::{AnisetteConfiguration, AnisetteHeaders};
 
 use crate::Error;
 
+#[cfg(test)]
+mod compatibility_tests;
+
 #[derive(Debug, Clone)]
 pub struct AnisetteData {
     pub base_headers: HashMap<String, String>,
@@ -49,10 +52,15 @@ impl AnisetteData {
         }
 
         let mut headers = self.base_headers.clone();
+        // User-Agent is an HTTP header, not GrandSlam client-provided data.
+        if cpd {
+            headers.remove("User-Agent");
+        }
         let old_client_info = headers.remove("X-Mme-Client-Info");
 
         if client_info {
             let client_info = match old_client_info {
+                Some(v) if self.config.mode().uses_server_identity() => v,
                 Some(v) => {
                     let temp = v.as_str();
 
@@ -101,12 +109,30 @@ impl AnisetteData {
         let headers = self
             .generate_headers(true, true, true)
             .iter()
-            .map(|(k, v)| (k.to_lowercase(), v.to_lowercase()))
+            .map(|(k, v)| {
+                (
+                    k.to_lowercase(),
+                    if self.config.mode().uses_server_identity() {
+                        v.clone()
+                    } else {
+                        v.to_lowercase()
+                    },
+                )
+            })
             .collect::<HashMap<String, String>>();
 
         match headers.get(&header.to_lowercase()) {
             Some(v) => Ok(v.to_string()),
             None => Err(Error::DeveloperSessionRequestFailed),
         }
+    }
+
+    pub fn user_agent(&self, default: &str) -> String {
+        if self.config.mode().uses_server_identity() {
+            if let Some(value) = self.base_headers.get("User-Agent") {
+                return value.clone();
+            }
+        }
+        default.to_string()
     }
 }

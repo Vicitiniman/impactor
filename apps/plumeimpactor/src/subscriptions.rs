@@ -282,7 +282,7 @@ pub(crate) async fn run_installation(
     mut store: Option<&mut plume_store::AccountStore>,
     tx: &std::sync::mpsc::Sender<(String, i32)>,
 ) -> Result<(), String> {
-    use plume_core::{AnisetteConfiguration, CertificateIdentity, developer::DeveloperSession};
+    use plume_core::{CertificateIdentity, developer::DeveloperSession};
     use plume_utils::{Signer, SignerInstallMode, SignerMode};
 
     let package_file: Bundle;
@@ -304,8 +304,7 @@ pub(crate) async fn run_installation(
             let session = DeveloperSession::new(
                 account.adsid().clone(),
                 account.xcode_gs_token().clone(),
-                AnisetteConfiguration::default()
-                    .set_configuration_path(crate::defaults::get_data_path()),
+                crate::defaults::anisette_configuration().map_err(|e| e.to_string())?,
             )
             .await
             .map_err(|e| e.to_string())?;
@@ -529,6 +528,7 @@ pub(crate) async fn run_installation(
                         scheduled_refresh,
                     };
 
+                    store.reload_sync().map_err(|e| e.to_string())?;
                     let mut refresh_device = store
                         .get_refresh_device(&dev.udid)
                         .cloned()
@@ -565,12 +565,12 @@ pub(crate) async fn run_installation(
 
 #[allow(dead_code)]
 pub(crate) async fn export_certificate(account: plume_store::GsaAccount) -> Result<(), String> {
-    use plume_core::{AnisetteConfiguration, CertificateIdentity, developer::DeveloperSession};
+    use plume_core::{CertificateIdentity, developer::DeveloperSession};
 
     let session = DeveloperSession::new(
         account.adsid().clone(),
         account.xcode_gs_token().clone(),
-        AnisetteConfiguration::default().set_configuration_path(crate::defaults::get_data_path()),
+        crate::defaults::anisette_configuration().map_err(|e| e.to_string())?,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -641,12 +641,12 @@ pub(crate) async fn export_certificate(account: plume_store::GsaAccount) -> Resu
 pub(crate) async fn fetch_teams(
     account: &plume_store::GsaAccount,
 ) -> Result<Vec<crate::screen::settings::Team>, String> {
-    use plume_core::{AnisetteConfiguration, developer::DeveloperSession};
+    use plume_core::developer::DeveloperSession;
 
     let session = DeveloperSession::new(
         account.adsid().clone(),
         account.xcode_gs_token().clone(),
-        AnisetteConfiguration::default().set_configuration_path(crate::defaults::get_data_path()),
+        crate::defaults::anisette_configuration().map_err(|e| e.to_string())?,
     )
     .await
     .map_err(|e| e.to_string())?;
