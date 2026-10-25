@@ -8,7 +8,7 @@ use std::mem::MaybeUninit;
 // executable introduces duplicate runtime symbols at the final MSVC link.
 #[cfg_attr(
     all(target_env = "msvc", target_feature = "crt-static"),
-    link(name = "libucrt")
+    link(name = "libucrt", kind = "static")
 )]
 #[cfg_attr(
     not(all(target_env = "msvc", target_feature = "crt-static")),
